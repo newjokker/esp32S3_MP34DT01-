@@ -6,9 +6,9 @@ from collections import deque
 
 # Configuration parameters
 SERIAL_PORT = '/dev/cu.wchusbserial59090740691'  # Change to your serial port
-BAUD_RATE = 460800                      # Must match ESP32 baud rate
+BAUD_RATE = 2000000                      # Must match ESP32 baud rate
 BUFFER_SIZE = 1024                      # Buffer size, match ESP32 code
-SAMPLE_RATE = 16000                     # Sampling rate
+SAMPLE_RATE = 48000                     # Sampling rate
 PLOT_REFRESH_RATE = 30                  # Plot refresh rate (ms)
 
 # Initialize serial port
@@ -39,7 +39,7 @@ N = BUFFER_SIZE
 xf = np.linspace(0, SAMPLE_RATE//2, N//2)
 line_freq, = ax_freq.plot(xf, np.zeros(N//2), 'r-', lw=1)
 ax_freq.set_title('Frequency Domain (FFT)')
-ax_freq.set_xlim(1, 4000)  # Show audible frequency range
+ax_freq.set_xlim(1, 2000)  # Show audible frequency range
 ax_freq.set_ylim(0, 5*1e6)              # Adjust based on actual signal
 ax_freq.set_xlabel('Frequency (Hz)')
 ax_freq.set_ylabel('Magnitude')

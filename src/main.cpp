@@ -2,15 +2,16 @@
 #include <driver/i2s.h>
 
 #define I2S_PORT I2S_NUM_0
-#define SAMPLE_RATE 16000
-#define BUFFER_SIZE 1024
+#define SAMPLE_RATE 48000  // 提高到48kHz (CD音质)
+#define BUFFER_SIZE 1024   // 保持缓冲区大小不变
 
 // ESP32-S3的I2S PDM麦克风推荐引脚
 #define PDM_DATA_PIN  4  // DATA引脚
 #define PDM_CLK_PIN   5  // CLK引脚
 
 void setup() {
-  Serial.begin(460800);
+  // 串口波特率提高到921600以适应更高的采样率
+  Serial.begin(2000000);
 
   // I2S配置
   i2s_config_t i2s_config = {
@@ -22,7 +23,7 @@ void setup() {
     .intr_alloc_flags = ESP_INTR_FLAG_LEVEL1,
     .dma_buf_count = 8,
     .dma_buf_len = BUFFER_SIZE,
-    .use_apll = false,
+    .use_apll = true,  // 启用APLL以获得更精确的时钟
     .tx_desc_auto_clear = false,
     .fixed_mclk = 0
   };
@@ -54,6 +55,7 @@ void setup() {
   i2s_set_clk(I2S_PORT, SAMPLE_RATE, I2S_BITS_PER_SAMPLE_16BIT, I2S_CHANNEL_MONO);
 
   Serial.println("I2S PDM麦克风初始化完成");
+  Serial.printf("当前采样率: %d Hz, 波特率: 921600\n", SAMPLE_RATE);
 }
 
 void loop() {

@@ -57,6 +57,9 @@ python3 ./tools/read_csv.py /dev/cu.wchusbserial5A7B1617701
 
 * 虽然写的是 5v 但是要接在 3.3v 上才能正常运行
 
+* 波特率和采样率和对应着增加，不然会出现溢出的情况，非常大的声音
+
+* 
 
 
 

@@ -7,9 +7,9 @@ from datetime import datetime
 
 # 配置参数
 SERIAL_PORT = '/dev/cu.wchusbserial59090740691'  # 替换为你的串口号
-BAUD_RATE = 460800
+BAUD_RATE = 2000000
 BUFFER_SIZE = 1024  # 与Arduino代码中的BUFFER_SIZE一致
-SAMPLE_RATE = 16000  # 采样率
+SAMPLE_RATE = 48000  # 采样率
 CHANNELS = 1         # 单声道
 SAMPLE_WIDTH = 2     # 16位 = 2字节
 WAV_FILE = f'recording_{datetime.now().strftime("%Y%m%d_%H%M%S")}.wav'
