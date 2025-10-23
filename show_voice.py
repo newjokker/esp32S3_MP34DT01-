@@ -2,14 +2,14 @@ import serial
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
-from collections import deque
 
 # Configuration parameters
 SERIAL_PORT = '/dev/cu.wchusbserial59090740691'  # Change to your serial port
-BAUD_RATE = 2000000                      # Must match ESP32 baud rate
-BUFFER_SIZE = 1024                      # Buffer size, match ESP32 code
+BAUD_RATE = 1500000                      # Must match ESP32 baud rate
+BUFFER_SIZE = 4096                       # Buffer size for better frequency resolution
 SAMPLE_RATE = 48000                     # Sampling rate
-PLOT_REFRESH_RATE = 30                  # Plot refresh rate (ms)
+PLOT_REFRESH_RATE = 300                  # Plot refresh rate (ms)
+MAX_FREQ = 1000                         # Maximum frequency to display
 
 # Initialize serial port
 try:
@@ -28,19 +28,21 @@ x_time = np.arange(0, BUFFER_SIZE)
 line_time, = ax_time.plot(x_time, np.zeros(BUFFER_SIZE), 'b-', lw=1)
 ax_time.set_title('Time Domain Signal')
 ax_time.set_xlim(0, BUFFER_SIZE)
-# ax_time.set_ylim(-32768, 32767)  # 16-bit signed integer range
-ax_time.set_ylim(-40000, 40000)  # 16-bit signed integer range
+ax_time.set_ylim(-40000, 40000)
 ax_time.set_xlabel('Sample Points')
 ax_time.set_ylabel('Amplitude')
 ax_time.grid(True)
 
 # Frequency domain plot settings
 N = BUFFER_SIZE
-xf = np.linspace(0, SAMPLE_RATE//2, N//2)
-line_freq, = ax_freq.plot(xf, np.zeros(N//2), 'r-', lw=1)
-ax_freq.set_title('Frequency Domain (FFT)')
-ax_freq.set_xlim(1, 2000)  # Show audible frequency range
-ax_freq.set_ylim(0, 5*1e6)              # Adjust based on actual signal
+xf = np.fft.fftfreq(N, 1/SAMPLE_RATE)[:N//2]
+# Find index where frequency exceeds MAX_FREQ
+max_idx = np.argmax(xf > MAX_FREQ) if any(xf > MAX_FREQ) else len(xf)
+xf = xf[:max_idx]
+line_freq, = ax_freq.plot(xf, np.zeros(len(xf)), 'r-', lw=1)  # Linear scale
+ax_freq.set_title(f'Frequency Domain (FFT, 0-{MAX_FREQ}Hz)')
+ax_freq.set_xlim(0, MAX_FREQ)
+ax_freq.set_ylim(0, 2e6)              # Adjust based on your signal amplitude
 ax_freq.set_xlabel('Frequency (Hz)')
 ax_freq.set_ylabel('Magnitude')
 ax_freq.grid(True)
@@ -51,7 +53,7 @@ audio_buffer = np.zeros(BUFFER_SIZE, dtype=np.int16)
 def init():
     """Initialize animation"""
     line_time.set_ydata(np.zeros(BUFFER_SIZE))
-    line_freq.set_ydata(np.zeros(BUFFER_SIZE//2))
+    line_freq.set_ydata(np.zeros(len(xf)))
     return line_time, line_freq
 
 def update(frame):
@@ -68,14 +70,16 @@ def update(frame):
         # Update time domain plot
         line_time.set_ydata(audio_buffer)
         
-        # Calculate FFT
-        fft_data = np.abs(np.fft.fft(audio_buffer))[:N//2]
+        # Apply window function to reduce spectral leakage
+        window = np.hanning(BUFFER_SIZE)
+        windowed_data = audio_buffer * window
         
-        # Smoothing (optional)
-        fft_smoothed = np.convolve(fft_data, np.ones(5)/5, mode='same')
+        # Calculate FFT
+        fft_data = np.abs(np.fft.fft(windowed_data)[:N//2])
+        fft_data = fft_data[:max_idx]  # Truncate to MAX_FREQ
         
         # Update frequency domain plot
-        line_freq.set_ydata(fft_smoothed)
+        line_freq.set_ydata(fft_data)
     
     return line_time, line_freq
 
@@ -89,7 +93,7 @@ ani = FuncAnimation(
     cache_frame_data=False
 )
 
-plt.suptitle('ESP32 Audio Real-time Analysis (Sample Rate: {} Hz)'.format(SAMPLE_RATE))
+plt.suptitle(f'ESP32 Audio Real-time Analysis (Sample Rate: {SAMPLE_RATE} Hz, Refresh: {PLOT_REFRESH_RATE}ms)')
 plt.tight_layout()
 plt.show()
 

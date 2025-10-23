@@ -11,7 +11,7 @@
 
 void setup() {
   // 串口波特率提高到921600以适应更高的采样率
-  Serial.begin(2000000);
+  Serial.begin(1500000);
 
   // I2S配置
   i2s_config_t i2s_config = {

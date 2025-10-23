@@ -7,7 +7,7 @@ from datetime import datetime
 
 # 配置参数
 SERIAL_PORT = '/dev/cu.wchusbserial59090740691'  # 替换为你的串口号
-BAUD_RATE = 2000000
+BAUD_RATE = 1500000
 BUFFER_SIZE = 1024  # 与Arduino代码中的BUFFER_SIZE一致
 SAMPLE_RATE = 48000  # 采样率
 CHANNELS = 1         # 单声道
