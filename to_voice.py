@@ -1,3 +1,5 @@
+
+
 import serial
 import wave
 import time
@@ -16,6 +18,16 @@ SAMPLE_WIDTH = 2
 WAV_FILE = f'recording_{datetime.now().strftime("%Y%m%d_%H%M%S")}.wav'
 RECORD_SECONDS = 10
 TIMEOUT = 0.1
+VOLUME_GAIN = 8.0  # 音量增益倍数，2.0表示两倍音量
+
+def apply_volume_gain(audio_data, gain):
+    """应用音量增益，防止削波"""
+    amplified = audio_data.astype(np.float32) * gain
+    
+    # 限制在int16范围内防止削波
+    amplified = np.clip(amplified, -32768, 32767)
+    
+    return amplified.astype(np.int16)
 
 def find_sync_point(ser, sample_rate, sample_width, search_time=1.0):
     """寻找数据同步点"""
@@ -82,6 +94,7 @@ def find_sync_point(ser, sample_rate, sample_width, search_time=1.0):
 def main():
     print(f"准备录制 {RECORD_SECONDS} 秒音频...")
     print(f"采样率: {SAMPLE_RATE}Hz, 位深度: {SAMPLE_WIDTH*8}bit, 声道数: {CHANNELS}")
+    print(f"音量增益: {VOLUME_GAIN}x")
     
     try:
         # 打开串口
@@ -125,16 +138,18 @@ def main():
             bytes_read = len(data)
             
             if bytes_read > 0:
-                # 检查数据合理性
                 try:
                     audio_data = np.frombuffer(data, dtype=np.int16)
                     
-                    # 同步检查：数据不应该饱和
-                    max_amplitude = np.max(np.abs(audio_data))
-                    zero_crossings = np.sum(np.diff(np.signbit(audio_data.astype(np.float32))))
+                    # 应用音量增益
+                    amplified_data = apply_volume_gain(audio_data, VOLUME_GAIN)
+                    
+                    # 检查数据合理性
+                    max_amplitude = np.max(np.abs(amplified_data))
+                    zero_crossings = np.sum(np.diff(np.signbit(amplified_data.astype(np.float32))))
                     
                     # 如果数据饱和且没有过零点，可能是同步丢失
-                    if max_amplitude > 32000 and zero_crossings < len(audio_data) * 0.05:
+                    if max_amplitude > 32000 and zero_crossings < len(amplified_data) * 0.05:
                         sync_errors += 1
                         print(f"\n警告: 检测到可能的同步错误 ({sync_errors}/{max_sync_errors})")
                         
@@ -142,19 +157,19 @@ def main():
                             print("同步错误过多，停止录制")
                             break
                         
-                        # 尝试重新同步：丢弃一些数据并重新寻找同步点
+                        # 尝试重新同步
                         ser.reset_input_buffer()
                         time.sleep(0.1)
                         new_offset = find_sync_point(ser, SAMPLE_RATE, SAMPLE_WIDTH)
                         if new_offset > 0:
                             ser.read(new_offset)
-                            sync_errors = 0  # 重置错误计数
+                            sync_errors = 0
                         continue
                     
-                    # 数据正常，写入文件
-                    wf.writeframes(data)
+                    # 写入放大后的数据
+                    wf.writeframes(amplified_data.tobytes())
                     total_bytes += bytes_read
-                    sync_errors = 0  # 重置错误计数
+                    sync_errors = 0
                     
                 except Exception as e:
                     print(f"\n数据处理错误: {e}")
