@@ -63,6 +63,8 @@ python3 ./tools/read_csv.py /dev/cu.wchusbserial5A7B1617701
 
 * 查看波形的时候有一定的概率开始查看的时候是错误的数据，重新运行就行
 
+* 运行时间太长的话也会出问题，只需要重新拔插一下 usb 线就行了
+
 
 
 
