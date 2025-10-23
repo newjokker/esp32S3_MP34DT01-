@@ -5,15 +5,20 @@
 #define SAMPLE_RATE 16000
 #define BUFFER_SIZE 1024
 
+// ESP32-S3的I2S PDM麦克风推荐引脚
+#define PDM_DATA_PIN  4  // DATA引脚
+#define PDM_CLK_PIN   5  // CLK引脚
+
 void setup() {
   Serial.begin(460800);
 
+  // I2S配置
   i2s_config_t i2s_config = {
     .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_RX | I2S_MODE_PDM),
     .sample_rate = SAMPLE_RATE,
     .bits_per_sample = I2S_BITS_PER_SAMPLE_16BIT,
     .channel_format = I2S_CHANNEL_FMT_ONLY_LEFT,
-    // .communication_format = 0,  // ✅ PDM 模式不要设通信格式
+    .communication_format = I2S_COMM_FORMAT_STAND_I2S,
     .intr_alloc_flags = ESP_INTR_FLAG_LEVEL1,
     .dma_buf_count = 8,
     .dma_buf_len = BUFFER_SIZE,
@@ -22,24 +27,46 @@ void setup() {
     .fixed_mclk = 0
   };
 
+  // ESP32-S3的I2S引脚配置
   i2s_pin_config_t pin_config = {
     .mck_io_num = I2S_PIN_NO_CHANGE,
     .bck_io_num = I2S_PIN_NO_CHANGE,
-    .ws_io_num = 14,
+    .ws_io_num = PDM_CLK_PIN,      // CLK引脚
     .data_out_num = I2S_PIN_NO_CHANGE,
-    .data_in_num = 13
+    .data_in_num = PDM_DATA_PIN    // DATA引脚
   };
 
-  i2s_driver_install(I2S_PORT, &i2s_config, 0, NULL);
-  i2s_set_pin(I2S_PORT, &pin_config);
+  // 安装I2S驱动
+  esp_err_t err = i2s_driver_install(I2S_PORT, &i2s_config, 0, NULL);
+  if (err != ESP_OK) {
+    Serial.printf("I2S驱动安装失败: %d\n", err);
+    while(1);
+  }
+
+  // 设置引脚
+  err = i2s_set_pin(I2S_PORT, &pin_config);
+  if (err != ESP_OK) {
+    Serial.printf("I2S引脚设置失败: %d\n", err);
+    while(1);
+  }
+
+  // 设置时钟
   i2s_set_clk(I2S_PORT, SAMPLE_RATE, I2S_BITS_PER_SAMPLE_16BIT, I2S_CHANNEL_MONO);
 
-  Serial.println("I2S PDM 麦克风初始化完成");
+  Serial.println("I2S PDM麦克风初始化完成");
 }
 
 void loop() {
   int16_t buffer[BUFFER_SIZE];
   size_t bytes_read;
-  i2s_read(I2S_PORT, buffer, sizeof(buffer), &bytes_read, portMAX_DELAY);
+  
+  // 读取I2S数据
+  esp_err_t err = i2s_read(I2S_PORT, buffer, sizeof(buffer), &bytes_read, portMAX_DELAY);
+  if (err != ESP_OK) {
+    Serial.printf("I2S读取错误: %d\n", err);
+    return;
+  }
+  
+  // 将数据通过串口发送
   Serial.write((uint8_t *)buffer, bytes_read);
 }
