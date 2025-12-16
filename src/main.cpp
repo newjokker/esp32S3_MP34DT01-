@@ -3,6 +3,7 @@
 
 #define I2S_PORT I2S_NUM_0
 #define SAMPLE_RATE 48000  // 提高到48kHz (CD音质)
+// #define SAMPLE_RATE 4000  // 提高到48kHz (CD音质)
 #define BUFFER_SIZE 1024   // 保持缓冲区大小不变
 
 // ESP32-S3的I2S PDM麦克风推荐引脚

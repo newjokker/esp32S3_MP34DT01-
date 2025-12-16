@@ -16,7 +16,7 @@ SAMPLE_RATE = 48000
 CHANNELS = 1
 SAMPLE_WIDTH = 2
 WAV_FILE = f'recording_{datetime.now().strftime("%Y%m%d_%H%M%S")}.wav'
-RECORD_SECONDS = 10
+RECORD_SECONDS = 20
 TIMEOUT = 0.1
 VOLUME_GAIN = 8.0  # 音量增益倍数，2.0表示两倍音量
 
@@ -105,13 +105,13 @@ def main():
         ser.reset_input_buffer()
         time.sleep(0.5)
         
-        # 寻找同步点
-        sync_offset = find_sync_point(ser, SAMPLE_RATE, SAMPLE_WIDTH)
+        # # 寻找同步点
+        # sync_offset = find_sync_point(ser, SAMPLE_RATE, SAMPLE_WIDTH)
         
-        # 丢弃同步点之前的不对齐数据
-        if sync_offset > 0:
-            discard_bytes = ser.read(sync_offset)
-            print(f"丢弃 {len(discard_bytes)} 字节不对齐数据")
+        # # 丢弃同步点之前的不对齐数据
+        # if sync_offset > 0:
+        #     discard_bytes = ser.read(sync_offset)
+        #     print(f"丢弃 {len(discard_bytes)} 字节不对齐数据")
         
         # 创建WAV文件
         wf = wave.open(WAV_FILE, 'wb')
