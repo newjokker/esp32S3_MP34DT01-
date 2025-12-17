@@ -107,10 +107,10 @@ def main(gain_db=0.0):
         print("已停止")
 
 if __name__ == "__main__":
+    
     # 解析命令行参数
     parser = argparse.ArgumentParser(description='ESP32麦克风实时播放器')
-    parser.add_argument('--gain', type=float, default=16.0, 
-                       help='增益分贝值，例如：6.0表示+6dB放大')
+    parser.add_argument('--gain', type=float, default=16.0, help='增益分贝值，例如：6.0表示+6dB放大')
     
     args = parser.parse_args()
     
