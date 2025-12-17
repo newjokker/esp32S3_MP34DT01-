@@ -1,10 +1,11 @@
+
 import sounddevice as sd
 import numpy as np
 import serial
 import time
 import sys
-import math
-from scipy import signal
+from src.test_voice import test_audio_output, test_serial_connection, safe_serial_connection
+from src.audio_filter import SimpleAudioProcessor 
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -15,113 +16,53 @@ SAMPLE_RATE = 48000
 CHANNELS = 1
 BUFFER_SIZE = 1024  # 与ESP32的BUFFER_SIZE一致
 
-# ========== 简化的用户参数 ==========
-# 先简化参数，确保基本功能正常
+# ========== 用户参数 ==========
 GAIN_DB = 20.0                     # 增益分贝值
 FILTER_TYPE = 'bandpass'          # 只使用简单的滤波器类型
 FREQ_LOW = 100.0                  # 低切频率
 FREQ_HIGH = 3000.0                # 高切频率
-# 暂时禁用高级功能
-COMPRESSION_ENABLED = False       # 暂时禁用压缩
-NOISE_REDUCTION_ENABLED = False   # 暂时禁用噪声抑制
-VOICE_ENHANCE_ENABLED = False     # 暂时禁用语增强
-SHOW_SPECTRUM = False             # 暂时禁用频谱显示
+# 爆音检测参数
+VOLUME_THRESHOLD = 15.0           # 音量阈值百分比
+CHECK_DURATION = 0.5              # 检测时长(秒)
+THRESHOLD_RATIO = 0.5             # 超过阈值的比例阈值
+MAX_RETRIES = 3                   # 最大重试次数
 # ===================================
 
-class SimpleAudioProcessor:
-    """简化版音频处理器，确保实时性"""
-    def __init__(self, sample_rate=SAMPLE_RATE):
-        self.sample_rate = sample_rate
-        self.nyquist = sample_rate / 2.0
-        
-        # 初始化简单的滤波器
-        self.b = None
-        self.a = None
-        self.zi = None
-        
-        # 初始化增益
-        self.gain_linear = 10 ** (GAIN_DB / 20.0)
-        
-        self._init_filter()
-        print("=" * 50)
-        print("简化版音频处理器初始化")
-        print(f"采样率: {sample_rate}Hz")
-        print(f"滤波器: {FILTER_TYPE} ({FREQ_LOW}-{FREQ_HIGH}Hz)")
-        print(f"增益: {GAIN_DB:.1f}dB ({self.gain_linear:.1f}x)")
-        print("=" * 50)
-    
-    def _init_filter(self):
-        """初始化简单的滤波器"""
-        if FILTER_TYPE == 'none':
-            return
-            
-        if FILTER_TYPE == 'bandpass':
-            low = FREQ_LOW / self.nyquist
-            high = FREQ_HIGH / self.nyquist
-            if low < 1.0 and high < 1.0 and low < high:
-                self.b, self.a = signal.butter(4, [low, high], btype='bandpass')
-                self.zi = signal.lfilter_zi(self.b, self.a)
-        elif FILTER_TYPE == 'lowpass':
-            norm_freq = FREQ_HIGH / self.nyquist
-            if norm_freq < 1.0:
-                self.b, self.a = signal.butter(4, norm_freq, btype='low')
-                self.zi = signal.lfilter_zi(self.b, self.a)
-        elif FILTER_TYPE == 'highpass':
-            norm_freq = FREQ_LOW / self.nyquist
-            if norm_freq < 1.0:
-                self.b, self.a = signal.butter(4, norm_freq, btype='high')
-                self.zi = signal.lfilter_zi(self.b, self.a)
-    
-    def process_audio(self, audio_data):
-        """处理音频数据 - 简化版"""
-        if FILTER_TYPE == 'none' or self.b is None:
-            filtered = audio_data
-        else:
-            # 转换为浮点数
-            audio_float = audio_data.astype(np.float32) / 32768.0
-            
-            # 应用滤波器
-            filtered_float, self.zi = signal.lfilter(
-                self.b, self.a, 
-                audio_float, 
-                zi=self.zi
-            )
-            
-            # 转换回int16
-            filtered = np.clip(filtered_float * 32768.0, -32768, 32767).astype(np.int16)
-        
-        # 应用增益
-        if self.gain_linear != 1.0:
-            processed = np.clip(
-                filtered.astype(np.float32) * self.gain_linear,
-                -32768, 32767
-            ).astype(np.int16)
-        else:
-            processed = filtered
-            
-        return processed
 
 def main():
     """主函数"""
-    print("ESP32麦克风实时播放器 (简化版)")
+    print("ESP32麦克风实时播放器 (带爆音保护)")
     print(f"串口: {SERIAL_PORT}")
     print(f"波特率: {BAUD_RATE}")
     print(f"采样率: {SAMPLE_RATE}Hz")
     print(f"增益: {GAIN_DB:.1f}dB")
     print(f"滤波器: {FILTER_TYPE} ({FREQ_LOW}-{FREQ_HIGH}Hz)")
-    print("-" * 50)
+    print(f"爆音保护: 音量>{VOLUME_THRESHOLD}%持续{THRESHOLD_RATIO*100:.0f}%时间时重启")
+    print("-" * 60)
     
     # 初始化音频处理器
-    processor = SimpleAudioProcessor()
+    processor = SimpleAudioProcessor(
+        sample_rate=SAMPLE_RATE,
+        filter_type=FILTER_TYPE,
+        freq_low=FREQ_LOW,
+        freq_high=FREQ_HIGH,
+        gain_db=GAIN_DB
+    )
+    
+    ser = None
+    stream = None
     
     try:
-        # 打开串口
-        ser = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=0.1)
-        print(f"✓ 已连接串口: {ser.name}")
-        
-        # 清空缓冲区
-        ser.reset_input_buffer()
-        time.sleep(0.5)
+        # 安全连接串口
+        ser = safe_serial_connection(
+                            SERIAL_PORT, 
+                            BAUD_RATE, 
+                            MAX_RETRIES=MAX_RETRIES, 
+                            buffer_size=BUFFER_SIZE, 
+                            CHECK_DURATION=CHECK_DURATION, 
+                            VOLUME_THRESHOLD=VOLUME_THRESHOLD, 
+                            THRESHOLD_RATIO=THRESHOLD_RATIO
+                        )
         
         # 创建音频输出流
         stream = sd.OutputStream(
@@ -133,15 +74,24 @@ def main():
         stream.start()
         
         print("开始播放... (按Ctrl+C停止)")
-        print("-" * 50)
+        print("-" * 60)
         
+        # 运行时统计
         bytes_received = 0
         start_time = time.time()
         last_status_time = time.time()
-        
-        # 调试计数器
         data_received_counter = 0
-        no_data_counter = 0
+        audio_quality_checks = 0
+        last_quality_check = time.time()
+        
+        # 音量统计
+        volume_history = []
+        max_history_size = 100
+        
+        # 爆音保护状态
+        over_threshold_count = 0
+        total_samples_count = 0
+        auto_reconnect_count = 0
         
         try:
             while True:
@@ -152,7 +102,6 @@ def main():
                 if data:
                     bytes_received += len(data)
                     data_received_counter += 1
-                    no_data_counter = 0
                     
                     # 检查数据长度
                     if len(data) < 4:
@@ -165,15 +114,70 @@ def main():
                         print("数据转换错误，跳过")
                         continue
                     
-                    # 处理音频
-                    processed_audio = processor.process_audio(audio)
-                    
-                    # 播放音频
-                    try:
-                        stream.write(processed_audio)
-                    except Exception as e:
-                        print(f"播放错误: {e}")
-                        continue
+                    # 计算音量
+                    if len(audio) > 0:
+                        rms = np.sqrt(np.mean(audio.astype(np.float32)**2))
+                        volume = (rms / 32767) * 100
+                        
+                        # 更新音量历史
+                        volume_history.append(volume)
+                        if len(volume_history) > max_history_size:
+                            volume_history.pop(0)
+                        
+                        # 爆音检测
+                        total_samples_count += 1
+                        if volume > VOLUME_THRESHOLD:
+                            over_threshold_count += 1
+                        
+                        # 定期重置计数（滑动窗口）
+                        if total_samples_count >= 50:  # 每50个样本检查一次
+                            high_ratio = over_threshold_count / total_samples_count
+                            
+                            if high_ratio > THRESHOLD_RATIO:
+                                print(f"\n⚠ 爆音检测: 最近{total_samples_count}个样本中，"
+                                      f"{over_threshold_count}个超过阈值 ({high_ratio*100:.1f}%)")
+                                print("自动重新连接中...")
+                                
+                                auto_reconnect_count += 1
+                                
+                                # 保存当前状态
+                                last_volume = volume
+                                last_bytes = bytes_received
+                                
+                                # 关闭当前连接
+                                stream.stop()
+                                ser.close()
+                                time.sleep(1)
+                                
+                                # 重新连接
+                                try:
+                                    ser = safe_serial_connection(SERIAL_PORT, BAUD_RATE)
+                                    stream = sd.OutputStream(
+                                        samplerate=SAMPLE_RATE,
+                                        channels=CHANNELS,
+                                        dtype='int16',
+                                        blocksize=BUFFER_SIZE
+                                    )
+                                    stream.start()
+                                    
+                                    print(f"✓ 自动重新连接成功 ({auto_reconnect_count}次)")
+                                    print("恢复播放...")
+                                    
+                                    # 重置统计
+                                    bytes_received = last_bytes
+                                    over_threshold_count = 0
+                                    total_samples_count = 0
+                                    volume_history = []
+                                    
+                                    continue  # 跳过本次循环的后续处理
+                                    
+                                except Exception as e:
+                                    print(f"✗ 自动重新连接失败: {e}")
+                                    raise
+                            
+                            # 重置计数
+                            over_threshold_count = 0
+                            total_samples_count = 0
                     
                     # 显示状态
                     current_time = time.time()
@@ -183,30 +187,45 @@ def main():
                         if elapsed_total > 0:
                             kbps = bytes_received / elapsed_total / 1024
                             
-                            # 计算音量
-                            if len(audio) > 0:
-                                rms = np.sqrt(np.mean(audio.astype(np.float32)**2))
-                                volume = (rms / 32767) * 100
-                                
-                                # 简单的音量条
-                                bar_length = 20
-                                filled_length = int(bar_length * volume / 100)
-                                bar = '█' * filled_length + '░' * (bar_length - filled_length)
-                                
-                                # 状态信息
-                                status = (f"\r数据包: {data_received_counter} | "
-                                        f"速率: {kbps:.1f}KB/s | "
-                                        f"音量: {volume:.1f}% [{bar}]")
-                                sys.stdout.write(status)
-                                sys.stdout.flush()
+                            # 简单的音量条
+                            bar_length = 20
+                            filled_length = int(bar_length * volume / 100)
+                            bar = '█' * filled_length + '░' * (bar_length - filled_length)
+                            
+                            # 计算平均音量
+                            avg_volume = np.mean(volume_history) if volume_history else 0
+                            
+                            # 状态信息
+                            status = (f"\r数据包: {data_received_counter:6d} | "
+                                    f"速率: {kbps:5.1f}KB/s | "
+                                    f"音量: {volume:5.1f}% [{bar}] | "
+                                    f"平均: {avg_volume:5.1f}% | "
+                                    f"重连: {auto_reconnect_count:2d}")
+                            
+                            # 添加警告提示
+                            if avg_volume > VOLUME_THRESHOLD * 0.7:
+                                status += " ⚠"
+                            elif avg_volume > VOLUME_THRESHOLD:
+                                status += " ✗"
+                            
+                            sys.stdout.write(status)
+                            sys.stdout.flush()
                         
                         last_status_time = current_time
-                else:
-                    no_data_counter += 1
-                    if no_data_counter > 100:  # 连续100次无数据
-                        print(f"\n警告: 连续{no_data_counter}次无数据，检查连接")
-                        no_data_counter = 0
                     
+                    # 处理音频
+                    processed_audio = processor.process_audio(audio)
+                    
+                    # 播放音频
+                    try:
+                        stream.write(processed_audio)
+                    except Exception as e:
+                        print(f"播放错误: {e}")
+                        # 重置处理器状态
+                        processor.reset_filter_state()
+                        continue
+                    
+                else:
                     time.sleep(0.001)
                     
         except KeyboardInterrupt:
@@ -215,7 +234,7 @@ def main():
             print(f"\n处理错误: {e}")
             import traceback
             traceback.print_exc()
-            
+                    
     except serial.SerialException as e:
         print(f"串口错误: {e}")
         print("请检查:")
@@ -244,100 +263,32 @@ def main():
         traceback.print_exc()
         
     finally:
-        if 'stream' in locals():
+        if stream is not None:
             try:
                 stream.stop()
                 stream.close()
             except:
                 pass
-        if 'ser' in locals() and hasattr(ser, 'is_open') and ser.is_open:
+        if ser is not None and hasattr(ser, 'is_open') and ser.is_open:
             try:
                 ser.close()
             except:
                 pass
         
-        print("已停止")
-
-# 调试函数，测试音频输出是否正常
-def test_audio_output():
-    """测试音频输出是否正常工作"""
-    print("测试音频输出...")
-    try:
-        # 生成测试信号
-        duration = 1.0
-        samples = int(SAMPLE_RATE * duration)
-        t = np.linspace(0, duration, samples, endpoint=False)
-        test_signal = 0.5 * np.sin(2 * np.pi * 440 * t)  # 440Hz正弦波
-        test_signal = (test_signal * 32767).astype(np.int16)
-        
-        # 播放测试信号
-        stream = sd.OutputStream(
-            samplerate=SAMPLE_RATE,
-            channels=1,
-            dtype='int16'
-        )
-        stream.start()
-        print("播放440Hz测试音...")
-        stream.write(test_signal)
-        time.sleep(1)
-        stream.stop()
-        stream.close()
-        print("✓ 音频输出正常")
-        return True
-    except Exception as e:
-        print(f"✗ 音频输出测试失败: {e}")
-        return False
-
-# 调试函数，测试串口连接
-def test_serial_connection():
-    """测试串口连接"""
-    print(f"测试串口 {SERIAL_PORT}...")
-    try:
-        ser = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=1)
-        print(f"✓ 串口连接成功")
-        
-        # 清空缓冲区
-        ser.reset_input_buffer()
-        ser.reset_output_buffer()
-        
-        # 尝试读取一些数据
-        print("等待ESP32数据...")
-        start_time = time.time()
-        data_received = 0
-        
-        while time.time() - start_time < 3:  # 等待3秒
-            data = ser.read(1024)
-            if data:
-                data_received += len(data)
-                print(f"收到 {len(data)} 字节数据")
-        
-        if data_received > 0:
-            print(f"✓ 串口数据传输正常，共收到 {data_received} 字节")
-        else:
-            print("⚠ 串口连接正常，但未收到数据")
-            print("请检查ESP32是否正在发送数据")
-        
-        ser.close()
-        return data_received > 0
-    except Exception as e:
-        print(f"✗ 串口连接失败: {e}")
-        return False
 
 if __name__ == "__main__":
     print("=" * 60)
-    print("ESP32麦克风播放器 - 简化版")
+    print("ESP32麦克风播放器 - 带爆音保护版")
     print("=" * 60)
     
     # 可选：运行测试
-    run_tests = True  # 设置为True运行测试
+    run_tests = False   
     
     if run_tests:
         # 运行测试
         print("\n运行系统测试...")
-        audio_ok = test_audio_output()
-        serial_ok = test_serial_connection()
-        
-        # FIXME: 有时候会输出非常大的噪音，当音量持续在 0.5s 内有一半大于 20% 就直接重新运行了
+        audio_ok = test_audio_output(SAMPLE_RATE)
+        serial_ok = test_serial_connection(SERIAL_PORT, BAUD_RATE)
         
         if audio_ok and serial_ok:
             print("\n✓ 所有测试通过，开始主程序...")
