@@ -44,9 +44,6 @@ def main(gain_db=0.0):
         )
         stream.start()
         
-        print("开始播放... (按Ctrl+C停止)")
-        print("-" * 50)
-        
         bytes_received = 0
         start_time = time.time()
         last_status_time = time.time()
