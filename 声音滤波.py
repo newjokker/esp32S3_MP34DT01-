@@ -10,11 +10,11 @@ import warnings
 warnings.filterwarnings("ignore")
 
 # 与ESP32代码匹配的配置
-SERIAL_PORT = 'COM6'
+SERIAL_PORT = 'COM26'
 BAUD_RATE = 1500000
 SAMPLE_RATE = 48000
 CHANNELS = 1
-BUFFER_SIZE = 1024  # 与ESP32的BUFFER_SIZE一致
+BUFFER_SIZE = 256  # 与ESP32的BUFFER_SIZE一致
 
 # ========== 用户参数 ==========
 GAIN_DB = 20.0                     # 增益分贝值
