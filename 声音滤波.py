@@ -10,7 +10,7 @@ import warnings
 warnings.filterwarnings("ignore")
 
 # 与ESP32代码匹配的配置
-SERIAL_PORT = '/dev/cu.wchusbserial59090740691'
+SERIAL_PORT = 'COM6'
 BAUD_RATE = 1500000
 SAMPLE_RATE = 48000
 CHANNELS = 1
