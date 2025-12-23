@@ -2,7 +2,7 @@
 #include <driver/i2s.h>
 
 // =================================================
-// 硬件引脚定义（按你的板子实际接线改）
+// 硬件引脚定义
 // =================================================
 
 // -------- PDM 麦克风（I2S RX）--------
@@ -18,9 +18,17 @@
 
 // =================================================
 #define SAMPLE_RATE      44100
-#define BUFFER_SAMPLES   32       // 越小延迟越低（128≈3ms）
-#define MIC_GAIN         3.0f     // 🔊 音量放大倍数（2~5 合理）
+#define BUFFER_SAMPLES   32
+#define MIC_GAIN         3.0f
 // =================================================
+
+// DAC / 耳机的经验固定延迟（ms）
+#define DAC_LATENCY_MS  1.5f
+
+// 日志输出周期
+#define LOG_INTERVAL_MS 1000
+
+unsigned long last_log_time = 0;
 
 void setup() {
   Serial.begin(115200);
@@ -54,12 +62,9 @@ void setup() {
 
   i2s_driver_install(I2S_MIC_PORT, &mic_config, 0, NULL);
   i2s_set_pin(I2S_MIC_PORT, &mic_pins);
-  i2s_set_clk(
-    I2S_MIC_PORT,
-    SAMPLE_RATE,
-    I2S_BITS_PER_SAMPLE_16BIT,
-    I2S_CHANNEL_MONO
-  );
+  i2s_set_clk(I2S_MIC_PORT, SAMPLE_RATE,
+              I2S_BITS_PER_SAMPLE_16BIT,
+              I2S_CHANNEL_MONO);
 
   // =================================================
   // I2S TX - 耳机 / DAC
@@ -99,36 +104,54 @@ void loop() {
   size_t bytes_read = 0;
   size_t bytes_written = 0;
 
+  uint32_t t_start = micros();
+
   // 1️⃣ 读取麦克风
-  i2s_read(
-    I2S_MIC_PORT,
-    mic_buffer,
-    sizeof(mic_buffer),
-    &bytes_read,
-    portMAX_DELAY
-  );
+  i2s_read(I2S_MIC_PORT,
+           mic_buffer,
+           sizeof(mic_buffer),
+           &bytes_read,
+           portMAX_DELAY);
 
   int samples = bytes_read / sizeof(int16_t);
 
-  // 2️⃣ 放大 + 单声道复制到左右声道
+  // 2️⃣ 放大 + 单声道复制
   for (int i = 0; i < samples; i++) {
     float s = mic_buffer[i] * MIC_GAIN;
-
-    // 限幅防止破音
     if (s > 32767) s = 32767;
     if (s < -32768) s = -32768;
-
     int16_t v = (int16_t)s;
-    out_buffer[i * 2]     = v;  // Left
-    out_buffer[i * 2 + 1] = v;  // Right
+    out_buffer[i * 2]     = v;
+    out_buffer[i * 2 + 1] = v;
   }
 
-  // 3️⃣ 播放到耳机
-  i2s_write(
-    I2S_SPK_PORT,
-    out_buffer,
-    samples * 2 * sizeof(int16_t),
-    &bytes_written,
-    portMAX_DELAY
-  );
+  // 3️⃣ 播放
+  i2s_write(I2S_SPK_PORT,
+            out_buffer,
+            samples * 2 * sizeof(int16_t),
+            &bytes_written,
+            portMAX_DELAY);
+
+  uint32_t t_end = micros();
+
+  // =================================================
+  // 延迟估算 & 日志
+  // =================================================
+  unsigned long now = millis();
+  if (now - last_log_time >= LOG_INTERVAL_MS) {
+    last_log_time = now;
+
+    float frame_ms = (float)BUFFER_SAMPLES / SAMPLE_RATE * 1000.0f;
+    float processing_ms = (t_end - t_start) / 1000.0f;
+
+    float estimated_latency =
+        frame_ms * 2 + DAC_LATENCY_MS + processing_ms;
+
+    Serial.printf(
+      "📊 延迟估算 | frame=%.2f ms | proc=%.3f ms | total≈%.2f ms\n",
+      frame_ms,
+      processing_ms,
+      estimated_latency
+    );
+  }
 }
